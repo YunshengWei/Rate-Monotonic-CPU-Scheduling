@@ -9,7 +9,7 @@ RM:=rm
 
 all: clean modules app
 
-obj-m:= mp1.o
+obj-m:= rate_monotonic_scheduler.o
 
 modules:
 	$(MAKE) -C $(KERNEL_SRC) M=$(SUBDIR) modules
