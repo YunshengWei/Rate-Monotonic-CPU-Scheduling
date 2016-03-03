@@ -1,16 +1,17 @@
-#include <linux/module.h>
-#include <linux/init.h>
-#include <linux/kernel.h>
 #include <linux/fs.h>
-#include <linux/proc_fs.h>
-#include <linux/seq_file.h>
-#include <linux/string.h>
-#include <linux/types.h>
-#include <linux/sched.h>
-#include <linux/list.h>
-#include <linux/timer.h>
-#include <linux/slab.h>
+#include <linux/init.h>
+#include <linux/jiffies.h>
+#include <linux/kernel.h>
 #include <linux/kthread.h>
+#include <linux/list.h>
+#include <linux/module.h>
+#include <linux/proc_fs.h>
+#include <linux/sched.h>
+#include <linux/seq_file.h>
+#include <linux/slab.h>
+#include <linux/string.h>
+#include <linux/timer.h>
+#include <linux/types.h>
 #include <asm/semaphore.h>
 #include <asm/uaccess.h>
 #include "mp2_given.h"
@@ -21,11 +22,14 @@ MODULE_AUTHOR("Yunsheng Wei; Juanli Shen; Funing Xu; Wei Yang");
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("Rate-Monotonic Scheduler");
 
+struct mp2_task_struct;
+
 static const char delimiters[] = ",";
 static struct proc_dir_entry *mp2_dir;
 static unsigned long procfs_buffer_size = 0;
 static char procfs_buffer[PROCFS_MAX_SIZE];
 static struct task_struct *dispatching_thread;
+static struct mp2_task_struct current_running_thread;
 LIST_HEAD(task_list);
 DECLARE_MUTEX(mutex);
 
@@ -40,7 +44,54 @@ struct mp2_task_struct {
     unsigned int pid;
     unsigned long period;
     unsigned long processing_time;
+    unsigned long next_period;
 };
+
+int context_switch(void *data) {
+    struct sched_param sparam_pr99;
+    sparam_pr99.sched_priority = 99;
+    struct sched_param sparam_pr0;
+    sparam_pr0.sched_priority = 0;
+
+    while (!kthread_should_stop()) {
+        struct mp2_task_struct *entry;
+        struct mp2_task_struct *highest_priority_task = NULL;
+        unsigned long min_period = ULONG_MAX;
+
+        if (down_interruptible(&mutex)) {
+            return -ERESTARTSYS;
+        }
+        list_for_each_entry(entry, &task_list, list) {
+            if (entry->period < min_period && entry->state == READY) {
+                min_period = entry->period;
+                highest_priority_task = entry;
+            }
+        }
+        up(&mutex);
+
+        if (current_running_thread && current_running_thread != highest_priority_task) {
+            sched_setscheduler(current_running_thread, SCHED_NORMAL, &sparam_pr0);
+        }
+
+        
+        wake_up_process(highest_priority_task);
+        sched_setscheduler(highest_priority_task, SCHED_FIFO, &sparam_pr99);
+        current_running_thread = highest_priority_task;
+        highest_priority_task->state = RUNNING;
+
+        set_current_state(TASK_UNINTERRUPTIBLE);
+        schedule();
+    }
+    return 0;
+}
+
+static void wakeup_timer_callback(unsigned long data) {
+    struct mp2_task_struct *entry = (struct mp2_task_struct *) data;
+    set_current_state(current_running_thread, TASK_UNINTERRUPTIBLE);
+    // Do we need lock here? How?
+    entry->state = READY;
+    wake_up_process(dispatching_thread);
+}
 
 static int rms_show(struct seq_file *file, void *v) {
     struct mp2_task_struct *entry;
@@ -93,6 +144,8 @@ static ssize_t register(unsigned int pid, unsigned long period,
         entry->processing_time = processing_time;
         entry->task = find_task_by_pid(pid);
         entry->state = SLEEPING;
+        entry->next_period = jiffies;
+        setup_timer(&entry->timer, wakeup_timer_callback, (unsigned long) entry);
         list_add(&entry->list, &task_list);
     }
     up(&mutex);
@@ -101,13 +154,34 @@ static ssize_t register(unsigned int pid, unsigned long period,
 }
 
 static ssize_t yield(unsigned int pid) {
+    struct mp2_task_struct *entry;
     if (down_interruptible(&mutex)) {
         return -ERESTARTSYS;
     }
-    
+    list_for_each_entry(entry, &task_list, list) {
+        if (entry->pid == pid) {
+            current_running_thread = NULL;
+            entry->state = SLEEPING;
+            unsigned long next_period = entry->next_period;
+            do {
+                next_period += entry->period;
+            } while (next_period <= jiffies);
+            mod_timer(&entry->timer, next_period);
+            entry->next_period = next_period;
+            set_current_state(entry->task, TASK_UNINTERRUPTIBLE);
+            break;
+        }
+    }
     up(&mutex);
 
+    wake_up_process(dispatching_thread);
     return 0;
+}
+
+static void free_task_struct(struct mp2_task_struct *entry) {
+    list_del(&entry->list);
+    del_timer(&entry->timer);
+    kfree(entry);
 }
 
 static ssize_t deregister(unsigned int pid) {
@@ -118,8 +192,7 @@ static ssize_t deregister(unsigned int pid) {
     }
     list_for_each_entry_safe(entry, &task_list, list) {
         if (entry->pid == pid) {
-            list_del(&entry->list);
-            kfree(entry);
+            free_task_struct(entry);
             break;
         }
     }
@@ -178,14 +251,6 @@ static const struct file_operations rms_fops = {
     .release = single_release,
 };
 
-int context_switch(void *data) {
-    while (!kthread_should_stop()) {
-
-        
-    }
-    return 0;
-}
-
 static int __init rms_init(void) {
     printk(KERN_INFO "Loading rate-monotonic scheduler module.\n");
 
@@ -208,8 +273,7 @@ static void __exit rms_exit(void) {
         return -ERESTARTSYS;
     }
     list_for_each_entry_safe(entry, &task_list, list) {
-        list_del(&entry->list);
-        kfree(entry);
+        free_task_struct(entry);
     }
     up(&mutex);
 
