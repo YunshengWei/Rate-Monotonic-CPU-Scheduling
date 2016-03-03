@@ -14,6 +14,7 @@
 #include <linux/types.h>
 #include <asm/semaphore.h>
 #include <asm/uaccess.h>
+
 #include "mp2_given.h"
 
 #define PROCFS_MAX_SIZE 1024
@@ -29,7 +30,7 @@ static struct proc_dir_entry *mp2_dir;
 static unsigned long procfs_buffer_size = 0;
 static char procfs_buffer[PROCFS_MAX_SIZE];
 static struct task_struct *dispatching_thread;
-static struct mp2_task_struct current_running_thread;
+static struct mp2_task_struct *current_running_task;
 LIST_HEAD(task_list);
 DECLARE_MUTEX(mutex);
 
@@ -61,6 +62,11 @@ int context_switch(void *data) {
         if (down_interruptible(&mutex)) {
             return -ERESTARTSYS;
         }
+
+        // This can avoid missing wakeup?
+        // Need proof.
+        set_current_state(TASK_UNINTERRUPTIBLE);
+
         list_for_each_entry(entry, &task_list, list) {
             if (entry->period < min_period && entry->state == READY) {
                 min_period = entry->period;
@@ -69,27 +75,28 @@ int context_switch(void *data) {
         }
         up(&mutex);
 
-        if (current_running_thread && current_running_thread != highest_priority_task) {
-            sched_setscheduler(current_running_thread, SCHED_NORMAL, &sparam_pr0);
+        if (current_running_task &&
+            current_running_task != highest_priority_task) {
+            current_running_task->state = READY;
+            sched_setscheduler(current_running_task, SCHED_NORMAL, &sparam_pr0);
         }
 
-        
-        wake_up_process(highest_priority_task);
-        sched_setscheduler(highest_priority_task, SCHED_FIFO, &sparam_pr99);
-        current_running_thread = highest_priority_task;
-        highest_priority_task->state = RUNNING;
+    wake_up_process(highest_priority_task);
+    sched_setscheduler(highest_priority_task, SCHED_FIFO, &sparam_pr99);
+    current_running_task = highest_priority_task;
+    highest_priority_task->state = RUNNING;
 
-        set_current_state(TASK_UNINTERRUPTIBLE);
-        schedule();
-    }
-    return 0;
+    schedule();
+}
+return 0;
 }
 
 static void wakeup_timer_callback(unsigned long data) {
     struct mp2_task_struct *entry = (struct mp2_task_struct *) data;
-    set_current_state(current_running_thread, TASK_UNINTERRUPTIBLE);
+    set_current_state(current_running_task, TASK_UNINTERRUPTIBLE);
     // Do we need lock here? How?
     entry->state = READY;
+
     wake_up_process(dispatching_thread);
 }
 
@@ -130,7 +137,7 @@ static bool pass_admission_control(unsigned long period,
     }
 }
 
-static ssize_t register(unsigned int pid, unsigned long period,
+static ssize_t rms_register(unsigned int pid, unsigned long period,
     unsigned long processing_time) {
 
     if (down_interruptible(&mutex)) {
@@ -138,7 +145,7 @@ static ssize_t register(unsigned int pid, unsigned long period,
     }
     if (pass_admission_control(pid, period, processing_time)) {
         struct mp2_task_struct *entry = kmalloc(sizeof(struct mp2_task_struct),
-        GFP_KERNEL);
+            GFP_KERNEL);
         entry->pid = pid;
         entry->period = period;
         entry->processing_time = processing_time;
@@ -153,56 +160,67 @@ static ssize_t register(unsigned int pid, unsigned long period,
     return 0;
 }
 
-static ssize_t yield(unsigned int pid) {
-    struct mp2_task_struct *entry;
+static ssize_t rms_yield(unsigned int pid) {
     if (down_interruptible(&mutex)) {
         return -ERESTARTSYS;
     }
+
+    struct mp2_task_struct *entry;
     list_for_each_entry(entry, &task_list, list) {
         if (entry->pid == pid) {
-            current_running_thread = NULL;
-            entry->state = SLEEPING;
-            unsigned long next_period = entry->next_period;
-            do {
-                next_period += entry->period;
-            } while (next_period <= jiffies);
-            mod_timer(&entry->timer, next_period);
-            entry->next_period = next_period;
-            set_current_state(entry->task, TASK_UNINTERRUPTIBLE);
+            current_running_task = NULL;
+
+            entry->next_period += msecs_to_jiffies(entry->period);
+            mod_timer(&entry->timer, entry->next_period);
+
+            printk(KERN_INFO "Yield process %u.\n", pid);
             break;
         }
     }
-    up(&mutex);
 
     wake_up_process(dispatching_thread);
+
+    // must release lock before going to sleep,
+    // otherwise might cause deadlock!
+    // Consider what might happend if interrupt between sleep and relase lock.
+    up(&mutex);
+
+    // should not sleep until finishing all work,
+    // otherwise it will never awake!
+    entry->state = SLEEPING;
+    set_current_state(entry->task, TASK_UNINTERRUPTIBLE);
+
     return 0;
 }
 
 static void free_task_struct(struct mp2_task_struct *entry) {
     list_del(&entry->list);
-    del_timer(&entry->timer);
+    del_timer_sync(&entry->timer);
     kfree(entry);
 }
 
-static ssize_t deregister(unsigned int pid) {
-    struct mp2_task_struct *entry;
-
+static ssize_t rms_deregister(unsigned int pid) {
     if (down_interruptible(&mutex)) {
         return -ERESTARTSYS;
     }
+
+    struct mp2_task_struct *entry;
     list_for_each_entry_safe(entry, &task_list, list) {
         if (entry->pid == pid) {
             free_task_struct(entry);
+
+            printk(KERN_INFO "Deregister process %u.\n", pid);
             break;
         }
     }
+
     up(&mutex);
 
     return 0;
 }
 
 static ssize_t rms_write(struct file *file, const char __user *buffer, size_t count, loff_t *data) {
-    
+
     procfs_buffer_size = count;
     if (procfs_buffer_size > PROCFS_MAX_SIZE) {
         procfs_buffer_size = PROCFS_MAX_SIZE;
@@ -220,26 +238,26 @@ static ssize_t rms_write(struct file *file, const char __user *buffer, size_t co
 
     switch (instr) {
         case 'R': 
-            unsigned long period;
-            unsigned long process_time;
-            kstrtoul(strsep(&running, delimiters), 0, &period);
-            kstrtoul(strsep(&running, delimiters), 0, &process_time);
+        unsigned long period;
+        unsigned long process_time;
+        kstrtoul(strsep(&running, delimiters), 0, &period);
+        kstrtoul(strsep(&running, delimiters), 0, &process_time);
 
-            error_code = register(pid, period, process_time));
-            break;
-        case 'Y':
-            error_code = yield(pid);
-            break;
-        case 'D':
-            error_code = deregister(pid);
-            break;
-    }
+        error_code = rms_register(pid, period, process_time));
+break;
+case 'Y':
+error_code = rms_yield(pid);
+break;
+case 'D':
+error_code = rms_deregister(pid);
+break;
+}
 
-    if (error_code) {
-        return error_code;
-    } else {
-        return byetsToCopy;
-    }
+if (error_code) {
+    return error_code;
+} else {
+    return procfs_buffer_size;
+}
 }
 
 static const struct file_operations rms_fops = {
@@ -252,14 +270,16 @@ static const struct file_operations rms_fops = {
 };
 
 static int __init rms_init(void) {
-    printk(KERN_INFO "Loading rate-monotonic scheduler module.\n");
-
     mp2_dir = proc_mkdir("mp2", NULL);
     proc_create("status", 0666, mp2_dir, &rms_fops);
 
     dispatching_thread = kthread_create(context_switch,
         NULL, "dispatching thread");
+    struct sched_param sparam;
+    sparam.sched_priority = 98;
+    sched_setscheduler(dispatching_thread, SCHED_FIFO, &sparam);
 
+    printk(KERN_INFO "Rate-monotonic scheduler module loaded successfully.\n");
 
     return 0;
 }
@@ -267,8 +287,10 @@ static int __init rms_init(void) {
 static void __exit rms_exit(void) {
     kthread_stop(dispatching_thread);
 
-    struct mp2_task_struct *entry;
+    /*
+    Assume all applications rms_deregister themselves, so don't need this.
 
+    struct mp2_task_struct *entry;
     if (down_interruptible(&mutex)) {
         return -ERESTARTSYS;
     }
@@ -276,6 +298,7 @@ static void __exit rms_exit(void) {
         free_task_struct(entry);
     }
     up(&mutex);
+    */
 
     remove_proc_entry("status", mp2_dir);
     remove_proc_entry("mp2", NULL);
