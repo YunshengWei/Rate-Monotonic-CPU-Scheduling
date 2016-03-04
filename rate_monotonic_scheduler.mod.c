@@ -27,9 +27,9 @@ __attribute__((section("__versions"))) = {
 	{ 0x70cb5d65, __VMLINUX_SYMBOL_STR(proc_create_data) },
 	{ 0xd34e90c6, __VMLINUX_SYMBOL_STR(proc_mkdir) },
 	{ 0x593a99b, __VMLINUX_SYMBOL_STR(init_timer_key) },
+	{ 0x27e1a049, __VMLINUX_SYMBOL_STR(printk) },
 	{ 0x37a0cba, __VMLINUX_SYMBOL_STR(kfree) },
 	{ 0xc996d097, __VMLINUX_SYMBOL_STR(del_timer) },
-	{ 0x27e1a049, __VMLINUX_SYMBOL_STR(printk) },
 	{ 0x3c80c06c, __VMLINUX_SYMBOL_STR(kstrtoull) },
 	{ 0x8834396c, __VMLINUX_SYMBOL_STR(mod_timer) },
 	{ 0x7d11c268, __VMLINUX_SYMBOL_STR(jiffies) },
@@ -42,8 +42,8 @@ __attribute__((section("__versions"))) = {
 	{ 0x14b58138, __VMLINUX_SYMBOL_STR(single_open) },
 	{ 0x1000e51, __VMLINUX_SYMBOL_STR(schedule) },
 	{ 0xeb3ede2c, __VMLINUX_SYMBOL_STR(sched_setscheduler) },
-	{ 0xda3e43d1, __VMLINUX_SYMBOL_STR(_raw_spin_unlock) },
-	{ 0xd52bf1ce, __VMLINUX_SYMBOL_STR(_raw_spin_lock) },
+	{ 0x71e3cecb, __VMLINUX_SYMBOL_STR(up) },
+	{ 0xf22449ae, __VMLINUX_SYMBOL_STR(down_interruptible) },
 	{ 0xb3f7646e, __VMLINUX_SYMBOL_STR(kthread_should_stop) },
 	{ 0x3d1f7a21, __VMLINUX_SYMBOL_STR(kmem_cache_alloc_trace) },
 	{ 0xda22cdde, __VMLINUX_SYMBOL_STR(kmalloc_caches) },
@@ -58,4 +58,4 @@ __attribute__((section(".modinfo"))) =
 "depends=";
 
 
-MODULE_INFO(srcversion, "589BA4212325A3989B25A2E");
+MODULE_INFO(srcversion, "641538659396ACE8E29540E");

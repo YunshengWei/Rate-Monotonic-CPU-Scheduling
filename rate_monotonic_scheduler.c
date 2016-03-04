@@ -13,8 +13,7 @@
 #include <linux/timer.h>
 #include <linux/types.h>
 #include <linux/sched.h>
-// #include <asm/semaphore.h>
-// #include <linux/semaphore.h>
+#include <linux/semaphore.h>
 #include <linux/spinlock.h>
 #include <asm/uaccess.h>
 #include "mp2_given.h"
@@ -35,6 +34,7 @@ static char procfs_buffer[PROCFS_MAX_SIZE];
 static struct task_struct *dispatching_thread;
 static struct mp2_task_struct* current_running_thread; // global running task
 static spinlock_t list_lock; // init spinlock
+static struct semaphore sem;
 LIST_HEAD(task_list);
 // DECLARE_MUTEX(mutex);
 
@@ -66,10 +66,10 @@ int context_switch(void *data)
         struct mp2_task_struct *highest_priority_task = NULL;
         unsigned long min_period = ULONG_MAX;
 
-        // if (down_interruptible(&mutex)) {
-        //     return -ERESTARTSYS;
-        // }
-        spin_lock(&list_lock);
+        if (down_interruptible(&sem)) {
+            return -ERESTARTSYS;
+        }
+        // spin_lock(&list_lock);
         list_for_each_entry(entry, &task_list, list) 
         {
             if (entry->period < min_period && entry->state == READY) 
@@ -78,8 +78,8 @@ int context_switch(void *data)
                 highest_priority_task = entry;
             }
         }
-        spin_unlock(&list_lock);
-        // up(&mutex);
+        // spin_unlock(&list_lock);
+        up(&sem);
 
         if (current_running_thread->state == RUNNING && current_running_thread->pid != highest_priority_task->pid) 
         {
@@ -109,16 +109,16 @@ static void wakeup_timer_callback(unsigned long data) {
 static int rms_show(struct seq_file *file, void *v) {
     struct mp2_task_struct *entry;
 
-    // if (down_interruptible(&mutex)) {
-    //     return -ERESTARTSYS;
-    // }
-    spin_lock(&list_lock);
+    if (down_interruptible(&sem)) {
+        return -ERESTARTSYS;
+    }
+    // spin_lock(&list_lock);
     list_for_each_entry(entry, &task_list, list) {
         seq_printf(file, "%u, %lu, %lu\n", 
             entry->pid, entry->period, entry->processing_time);
     }
-    // up(&mutex);
-    spin_unlock(&list_lock);
+    up(&sem);
+    // spin_unlock(&list_lock);
     return 0;
 }
 
@@ -148,11 +148,11 @@ static bool pass_admission_control(unsigned int pid, unsigned long period, unsig
 static ssize_t __register(unsigned int pid, unsigned long period, unsigned long processing_time)
 {
 
-    // if (down_interruptible(&mutex)) {
-    //     return -ERESTARTSYS;
-    // }
+    if (down_interruptible(&sem)) {
+        return -ERESTARTSYS;
+    }
     printk(KERN_INFO "calling register ...\n");
-    spin_lock(&list_lock);
+    // spin_lock(&list_lock);
     // new app need to pass adm control
     if (pass_admission_control(pid, period, processing_time)) 
     {
@@ -168,18 +168,18 @@ static ssize_t __register(unsigned int pid, unsigned long period, unsigned long 
         setup_timer(&entry->timer, wakeup_timer_callback, (unsigned long) entry);
         list_add(&entry->list, &task_list);
     }
-    spin_unlock(&list_lock);
-    // up(&mutex);
+    // spin_unlock(&list_lock);
+    up(&sem);
 
     return 0;
 }
 
 static ssize_t __yield(unsigned int pid) {
     struct mp2_task_struct *entry;
-    // if (down_interruptible(&mutex)) {
-    //     return -ERESTARTSYS;
-    // }
-    spin_lock(&list_lock);
+    if (down_interruptible(&sem)) {
+        return -ERESTARTSYS;
+    }
+    // spin_lock(&list_lock);
     list_for_each_entry(entry, &task_list, list) 
     {
         if (entry->pid == pid) 
@@ -198,8 +198,8 @@ static ssize_t __yield(unsigned int pid) {
             break;
         }
     }
-    spin_unlock(&list_lock);
-    // up(&mutex);
+    // spin_unlock(&list_lock);
+    up(&sem);
 
     wake_up_process(dispatching_thread);
     return 0;
@@ -214,10 +214,10 @@ static void free_task_struct(struct mp2_task_struct *entry) {
 static ssize_t deregister(unsigned int pid) {
     struct mp2_task_struct *entry;
 
-    // if (down_interruptible(&mutex)) {
-    //     return -ERESTARTSYS;
-    // }
-    spin_lock(&list_lock);
+    if (down_interruptible(&sem)) {
+        return -ERESTARTSYS;
+    }
+    // spin_lock(&list_lock);
     list_for_each_entry(entry, &task_list, list) 
     {
         if (entry->pid == pid) 
@@ -226,8 +226,8 @@ static ssize_t deregister(unsigned int pid) {
             break;
         }
     }
-    spin_unlock(&list_lock);
-    // up(&mutex);
+    // spin_unlock(&list_lock);
+    up(&sem);
 
     return 0;
 }
@@ -296,7 +296,9 @@ static int __init rms_init(void) {
         NULL, "dispatching thread");
 
     // Init spin lock
-    spin_lock_init(&list_lock);
+    // spin_lock_init(&list_lock);
+
+    sema_init(&sem,1);
 
     return 0;
 }
@@ -307,15 +309,16 @@ static void __exit rms_exit(void) {
 
     struct mp2_task_struct *entry;
 
-    // if (down_interruptible(&mutex)) {
-    //     return -ERESTARTSYS;
-    // }
-    spin_lock(&list_lock);
+    if (down_interruptible(&sem)) {
+        return -ERESTARTSYS;
+    }
+    // spin_lock(&list_lock);
     list_for_each_entry(entry, &task_list, list) {
         free_task_struct(entry);
     }
-    spin_unlock(&list_lock);
-    // up(&mutex);
+    // spin_unlock(&list_lock);
+
+    up(&sem);
 
     remove_proc_entry("status", mp2_dir);
     remove_proc_entry("mp2", NULL);
