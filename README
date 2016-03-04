@@ -3,4 +3,4 @@
 ## change in branch wy_local
 
 
-This code uses spinlock to implement mutex
+This code uses semaphore under linux 3.19 to implement mutex
