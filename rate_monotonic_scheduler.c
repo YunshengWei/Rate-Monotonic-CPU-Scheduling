@@ -78,7 +78,6 @@ int context_switch(void *data) {
 
         if (! (current_running_task == highest_priority_task)) {
             if (current_running_task) {
-                current_running_task != highest_priority_task) {
                 current_running_task->state = READY;
                 sched_setscheduler(current_running_task, SCHED_NORMAL, &sparam_pr0);
             }
