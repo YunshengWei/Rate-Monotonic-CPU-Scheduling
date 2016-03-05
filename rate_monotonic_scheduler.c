@@ -68,32 +68,45 @@ int context_switch(void *data) {
         set_current_state(TASK_UNINTERRUPTIBLE);
 
         list_for_each_entry(entry, &task_list, list) {
-            if (entry->period < min_period && entry->state == READY) {
+            if (entry->period < min_period &&
+                (entry->state == READY || entry->state == RUNNING)) {
                 min_period = entry->period;
                 highest_priority_task = entry;
             }
         }
         up(&mutex);
 
-        if (current_running_task &&
-            current_running_task != highest_priority_task) {
-            current_running_task->state = READY;
-            sched_setscheduler(current_running_task, SCHED_NORMAL, &sparam_pr0);
+        
+        /*
+        1) t1 == null, t2 != null
+        2) t1, t2 != null, t1 == t2
+        3)                 t1 != t2
+        */
+        
+        // Please double check the logic flow below!
+        if (! (current_running_task == highest_priority_task)) {
+            if (current_running_task) {
+                current_running_task != highest_priority_task) {
+                current_running_task->state = READY;
+                sched_setscheduler(current_running_task, SCHED_NORMAL, &sparam_pr0);
+            }
+
+            wake_up_process(highest_priority_task);
+            sched_setscheduler(highest_priority_task, SCHED_FIFO, &sparam_pr99);
+            current_running_task = highest_priority_task;
+            highest_priority_task->state = RUNNING;
         }
 
-    wake_up_process(highest_priority_task);
-    sched_setscheduler(highest_priority_task, SCHED_FIFO, &sparam_pr99);
-    current_running_task = highest_priority_task;
-    highest_priority_task->state = RUNNING;
-
-    schedule();
-}
-return 0;
+        schedule();
+    }
+    
+    return 0;
 }
 
 static void wakeup_timer_callback(unsigned long data) {
     struct mp2_task_struct *entry = (struct mp2_task_struct *) data;
-    set_current_state(current_running_task, TASK_UNINTERRUPTIBLE);
+    //set_task_state(current_running_task, TASK_UNINTERRUPTIBLE);
+
     // Do we need lock here? How?
     entry->state = READY;
 
@@ -188,7 +201,8 @@ static ssize_t rms_yield(unsigned int pid) {
     // should not sleep until finishing all work,
     // otherwise it will never awake!
     entry->state = SLEEPING;
-    set_current_state(entry->task, TASK_UNINTERRUPTIBLE);
+    set_task_state(entry->task, TASK_UNINTERRUPTIBLE);
+    schedule();
 
     return 0;
 }
