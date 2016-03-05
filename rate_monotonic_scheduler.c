@@ -76,14 +76,6 @@ int context_switch(void *data) {
         }
         up(&mutex);
 
-        
-        /*
-        1) t1 == null, t2 != null
-        2) t1, t2 != null, t1 == t2
-        3)                 t1 != t2
-        */
-        
-        // Please double check the logic flow below!
         if (! (current_running_task == highest_priority_task)) {
             if (current_running_task) {
                 current_running_task != highest_priority_task) {
@@ -251,27 +243,27 @@ static ssize_t rms_write(struct file *file, const char __user *buffer, size_t co
     ssize_t error_code;
 
     switch (instr) {
-        case 'R': 
+    case 'R': 
         unsigned long period;
         unsigned long process_time;
         kstrtoul(strsep(&running, delimiters), 0, &period);
         kstrtoul(strsep(&running, delimiters), 0, &process_time);
 
         error_code = rms_register(pid, period, process_time));
-break;
-case 'Y':
-error_code = rms_yield(pid);
-break;
-case 'D':
-error_code = rms_deregister(pid);
-break;
-}
+        break;
+    case 'Y':
+        error_code = rms_yield(pid);
+        break;
+    case 'D':
+        error_code = rms_deregister(pid);
+        break;
+    }
 
-if (error_code) {
-    return error_code;
-} else {
-    return procfs_buffer_size;
-}
+    if (error_code) {
+        return error_code;
+    } else {
+        return procfs_buffer_size;
+    }
 }
 
 static const struct file_operations rms_fops = {
