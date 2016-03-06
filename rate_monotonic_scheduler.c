@@ -13,8 +13,7 @@
 #include <linux/timer.h>
 #include <linux/types.h>
 #include <linux/sched.h>
-#include <linux/semaphore.h>
-#include <linux/spinlock.h>
+#include <linux/semaphore.h> // semaphore
 #include <asm/uaccess.h>
 #include "mp2_given.h"
 
@@ -33,15 +32,14 @@ static unsigned long procfs_buffer_size = 0;
 static char procfs_buffer[PROCFS_MAX_SIZE];
 static struct task_struct *dispatching_thread;
 static struct mp2_task_struct* current_running_thread; // global running task
-static spinlock_t list_lock; // init spinlock
-static struct semaphore sem;
+static struct semaphore sem; // semaphore mutex
 LIST_HEAD(task_list);
-// DECLARE_MUTEX(mutex);
 
 enum task_state { RUNNING, READY, SLEEPING };
 
 // augment PCB
-struct mp2_task_struct {
+struct mp2_task_struct 
+{
     struct task_struct *task; // PCB
     struct list_head list;
     struct timer_list timer;
@@ -69,7 +67,7 @@ int context_switch(void *data)
         if (down_interruptible(&sem)) {
             return -ERESTARTSYS;
         }
-        // spin_lock(&list_lock);
+
         list_for_each_entry(entry, &task_list, list) 
         {
             if (entry->period < min_period && entry->state == READY) 
@@ -78,7 +76,7 @@ int context_switch(void *data)
                 highest_priority_task = entry;
             }
         }
-        // spin_unlock(&list_lock);
+
         up(&sem);
 
         if (current_running_thread->state == RUNNING && current_running_thread->pid != highest_priority_task->pid) 
@@ -152,7 +150,7 @@ static ssize_t __register(unsigned int pid, unsigned long period, unsigned long 
         return -ERESTARTSYS;
     }
     printk(KERN_INFO "calling register ...\n");
-    // spin_lock(&list_lock);
+
     // new app need to pass adm control
     if (pass_admission_control(pid, period, processing_time)) 
     {
@@ -168,7 +166,6 @@ static ssize_t __register(unsigned int pid, unsigned long period, unsigned long 
         setup_timer(&entry->timer, wakeup_timer_callback, (unsigned long) entry);
         list_add(&entry->list, &task_list);
     }
-    // spin_unlock(&list_lock);
     up(&sem);
 
     return 0;
@@ -179,7 +176,7 @@ static ssize_t __yield(unsigned int pid) {
     if (down_interruptible(&sem)) {
         return -ERESTARTSYS;
     }
-    // spin_lock(&list_lock);
+
     list_for_each_entry(entry, &task_list, list) 
     {
         if (entry->pid == pid) 
@@ -198,7 +195,7 @@ static ssize_t __yield(unsigned int pid) {
             break;
         }
     }
-    // spin_unlock(&list_lock);
+
     up(&sem);
 
     wake_up_process(dispatching_thread);
@@ -217,7 +214,7 @@ static ssize_t deregister(unsigned int pid) {
     if (down_interruptible(&sem)) {
         return -ERESTARTSYS;
     }
-    // spin_lock(&list_lock);
+
     list_for_each_entry(entry, &task_list, list) 
     {
         if (entry->pid == pid) 
@@ -226,7 +223,7 @@ static ssize_t deregister(unsigned int pid) {
             break;
         }
     }
-    // spin_unlock(&list_lock);
+
     up(&sem);
 
     return 0;
@@ -250,7 +247,7 @@ static ssize_t rms_write(struct file *file, const char __user *buffer, size_t co
     char instr = *strsep(&running, delimiters);
     unsigned int pid;
     kstrtouint(strsep(&running, delimiters), 0, &pid);
-    ssize_t error_code;
+    ssize_t error_code = 0; // init error_code
     unsigned long period;
     unsigned long process_time;
     // action: Register, Yield, Deregister
@@ -270,9 +267,9 @@ static ssize_t rms_write(struct file *file, const char __user *buffer, size_t co
 
     if (error_code) {
         return error_code;
-    } else {
-        return procfs_buffer_size;
     }
+        
+    return procfs_buffer_size;
 }
 
 static const struct file_operations rms_fops = {
@@ -294,10 +291,8 @@ static int __init rms_init(void) {
 
     dispatching_thread = kthread_create(context_switch,
         NULL, "dispatching thread");
-
-    // Init spin lock
-    // spin_lock_init(&list_lock);
-
+    
+    // init semaphore
     sema_init(&sem,1);
 
     return 0;
@@ -309,15 +304,11 @@ static void __exit rms_exit(void) {
 
     struct mp2_task_struct *entry;
 
-    if (down_interruptible(&sem)) {
-        return -ERESTARTSYS;
-    }
-    // spin_lock(&list_lock);
-    list_for_each_entry(entry, &task_list, list) {
+    down_interruptible(&sem);
+    list_for_each_entry(entry, &task_list, list) 
+    {
         free_task_struct(entry);
     }
-    // spin_unlock(&list_lock);
-
     up(&sem);
 
     remove_proc_entry("status", mp2_dir);

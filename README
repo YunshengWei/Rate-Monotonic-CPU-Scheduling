@@ -2,5 +2,11 @@
 
 ## change in branch wy_local
 
+## This code uses semaphore under linux 3.19 to implement mutex
 
-This code uses semaphore under linux 3.19 to implement mutex
+## userapp
+	
+	1) for loop 100 times, see how long does each iter take
+	2) takes time period as argument to pass to scheduler
+	3) run 5 userapps simutaneously to test scheduler
+
