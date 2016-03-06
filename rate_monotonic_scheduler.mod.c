@@ -26,13 +26,14 @@ __attribute__((section("__versions"))) = {
 	{ 0x14807321, __VMLINUX_SYMBOL_STR(kthread_create_on_node) },
 	{ 0x70cb5d65, __VMLINUX_SYMBOL_STR(proc_create_data) },
 	{ 0xd34e90c6, __VMLINUX_SYMBOL_STR(proc_mkdir) },
+	{ 0x8834396c, __VMLINUX_SYMBOL_STR(mod_timer) },
+	{ 0x3bd1b1f6, __VMLINUX_SYMBOL_STR(msecs_to_jiffies) },
 	{ 0x593a99b, __VMLINUX_SYMBOL_STR(init_timer_key) },
-	{ 0x27e1a049, __VMLINUX_SYMBOL_STR(printk) },
+	{ 0x7d11c268, __VMLINUX_SYMBOL_STR(jiffies) },
 	{ 0x37a0cba, __VMLINUX_SYMBOL_STR(kfree) },
 	{ 0xc996d097, __VMLINUX_SYMBOL_STR(del_timer) },
 	{ 0x3c80c06c, __VMLINUX_SYMBOL_STR(kstrtoull) },
-	{ 0x8834396c, __VMLINUX_SYMBOL_STR(mod_timer) },
-	{ 0x7d11c268, __VMLINUX_SYMBOL_STR(jiffies) },
+	{ 0x27e1a049, __VMLINUX_SYMBOL_STR(printk) },
 	{ 0x69ad2f20, __VMLINUX_SYMBOL_STR(kstrtouint) },
 	{ 0x85df9b6c, __VMLINUX_SYMBOL_STR(strsep) },
 	{ 0x4f6b400b, __VMLINUX_SYMBOL_STR(_copy_from_user) },
@@ -58,4 +59,4 @@ __attribute__((section(".modinfo"))) =
 "depends=";
 
 
-MODULE_INFO(srcversion, "46BEF024D3484C169EB76E1");
+MODULE_INFO(srcversion, "DEC47F46D7259F3AFCDAFA4");

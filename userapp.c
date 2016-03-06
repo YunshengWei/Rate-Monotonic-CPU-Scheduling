@@ -70,19 +70,24 @@ int main(int argc, char* argv[])
     file = fopen("/proc/mp2/status", "r+");
     // register job
     _register_(period, processing_time);
+    // ensure job pid is registered
     if (!isRegistered()) {
         fprintf(stderr, "Fail to register\n");
         exit(EXIT_FAILURE);
     }
-
+    // ready to start
     yield();
     struct timeval wakeup_time;
-    while (true) {
+    while (true) 
+    {
         gettimeofday(&wakeup_time, NULL);
         printf("%d wakeup time: %ld\n", pid, wakeup_time.tv_sec * 1000000 + wakeup_time.tv_usec);
         do_job(n);
+        // block job
         yield();
     }
+    // deregister
+    deregister();
 
     fclose(file);
     return 0;
