@@ -238,9 +238,11 @@ static ssize_t rms_yield(unsigned int pid) {
     // otherwise it will never awake!
     entry->state = SLEEPING;
     set_task_state(entry->task, TASK_UNINTERRUPTIBLE);
-    schedule();
+    
 
     wake_up_process(dispatching_thread);
+
+    schedule();
 
     return 0;
 }
