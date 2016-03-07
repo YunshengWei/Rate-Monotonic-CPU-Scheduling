@@ -79,7 +79,7 @@ printf("pid: %u, period: %lu, processing time: %lu\n", pid, period, processing_t
     int i = 0;
     while (i++ <= 2) {
         gettimeofday(&wakeup_time, NULL);
-        //printf("%d wakeup time: %ld\n", pid, wakeup_time.tv_sec * 1000000 + wakeup_time.tv_usec);
+        // printf("%d wakeup time: %ld\n", pid, wakeup_time.tv_sec * 1000000 + wakeup_time.tv_usec);
         do_job(n);
         yield();
     }
