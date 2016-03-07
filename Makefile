@@ -1,4 +1,4 @@
-EXTRA_CFLAGS +=
+EXTRA_CFLAGS += -Wno-declaration-after-statement
 APP_EXTRA_FLAGS:= -O2 -ansi -pedantic
 KERNEL_SRC:= /lib/modules/$(shell uname -r)/build
 SUBDIR= $(PWD)

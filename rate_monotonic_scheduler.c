@@ -49,7 +49,9 @@ struct mp2_task_struct {
     unsigned long next_period;
 };
 
-int context_switch(void *data) {
+int context_switch(void *data) 
+{
+    printk(KERN_INFO "context_switch ...\n");
     struct sched_param sparam_pr99;
     sparam_pr99.sched_priority = 99;
     struct sched_param sparam_pr0;
@@ -96,6 +98,7 @@ int context_switch(void *data) {
 }
 
 static void wakeup_timer_callback(unsigned long data) {
+    printk(KERN_INFO "wakeup_timer_callback ...\n");
     struct mp2_task_struct *entry = (struct mp2_task_struct *) data;
     //set_task_state(current_running_task->task, TASK_UNINTERRUPTIBLE);
 
@@ -125,8 +128,9 @@ static int rms_open(struct inode *inode, struct file *file) {
 }
 
 // pass_admission_control should only be called when holding mutex
-static bool pass_admission_control(unsigned long period,
-    unsigned long processing_time) {
+static bool pass_admission_control(unsigned long period, unsigned long processing_time) 
+{
+    printk(KERN_INFO "pass_admission_control ...\n");
     unsigned long sum = 0;
 
     struct mp2_task_struct *entry;
@@ -196,7 +200,7 @@ static ssize_t rms_yield(unsigned int pid) {
         }
     }
 
-    wake_up_process(dispatching_thread);
+    
 
     // must release lock before going to sleep,
     // otherwise might cause deadlock!
@@ -209,6 +213,8 @@ static ssize_t rms_yield(unsigned int pid) {
     set_task_state(entry->task, TASK_UNINTERRUPTIBLE);
     schedule();
 
+    wake_up_process(dispatching_thread);
+
     return 0;
 }
 
@@ -220,7 +226,9 @@ static void free_task_struct(struct mp2_task_struct *entry) {
     
 }
 
-static ssize_t rms_deregister(unsigned int pid) {
+static ssize_t rms_deregister(unsigned int pid) 
+{
+    printk(KERN_INFO "rms_deregister ...\n");
     if (down_interruptible(&mutex)) {
         return -ERESTARTSYS;
     }
@@ -249,9 +257,9 @@ static ssize_t rms_write(struct file *file, const char __user *buffer, size_t co
     if (copy_from_user(procfs_buffer, buffer, procfs_buffer_size)) {
         return -EFAULT;
     }
-
+    procfs_buffer[procfs_buffer_size] = '\0';
     printk("%s\n", procfs_buffer);
-
+    
     char *running = procfs_buffer;
     char instr = *strsep(&running, delimiters);
     unsigned int pid;
