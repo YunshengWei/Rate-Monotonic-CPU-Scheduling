@@ -31,6 +31,7 @@ static unsigned long procfs_buffer_size = 0;
 static char procfs_buffer[PROCFS_MAX_SIZE];
 static struct task_struct *dispatching_thread;
 static struct mp2_task_struct *current_running_task;
+static kmem_cache_t *mp2_task_struct_cachep;
 LIST_HEAD(task_list);
 DECLARE_MUTEX(mutex);
 
@@ -148,13 +149,15 @@ static ssize_t rms_register(unsigned int pid, unsigned long period,
         return -ERESTARTSYS;
     }
     if (pass_admission_control(pid, period, processing_time)) {
-        struct mp2_task_struct *entry = kmalloc(sizeof(struct mp2_task_struct),
-            GFP_KERNEL);
+//        struct mp2_task_struct *entry = kmalloc(sizeof(struct mp2_task_struct),
+//            GFP_KERNEL);
+        struct mp2_task_struct *entry = kmem_cache_alloc(mp2_task_struct_cachep, GFP_KERNEL);
         entry->pid = pid;
         entry->period = period;
         entry->processing_time = processing_time;
         entry->task = find_task_by_pid(pid);
         entry->state = SLEEPING;
+        // TODO: ?
         entry->next_period = jiffies;
         setup_timer(&entry->timer, wakeup_timer_callback, (unsigned long) entry);
         list_add(&entry->list, &task_list);
@@ -201,7 +204,9 @@ static ssize_t rms_yield(unsigned int pid) {
 static void free_task_struct(struct mp2_task_struct *entry) {
     list_del(&entry->list);
     del_timer_sync(&entry->timer);
-    kfree(entry);
+//    kfree(entry);
+    kmem_cache_free(mp2_task_struct_cachep, entry);
+    
 }
 
 static ssize_t rms_deregister(unsigned int pid) {
@@ -213,7 +218,6 @@ static ssize_t rms_deregister(unsigned int pid) {
     list_for_each_entry_safe(entry, &task_list, list) {
         if (entry->pid == pid) {
             free_task_struct(entry);
-
             printk(KERN_INFO "Deregister process %u.\n", pid);
             break;
         }
@@ -235,7 +239,7 @@ static ssize_t rms_write(struct file *file, const char __user *buffer, size_t co
         return -EFAULT;
     }
 
-    char *running;
+    char *running = procfs_buffer;
     char instr = *strsep(&running, delimiters);
     unsigned int pid;
     kstrtouint(strsep(&running, delimiters), 0, &pid);
@@ -283,6 +287,14 @@ static int __init rms_init(void) {
     struct sched_param sparam;
     sparam.sched_priority = 98;
     sched_setscheduler(dispatching_thread, SCHED_FIFO, &sparam);
+    
+    // Create cache
+    mp2_task_struct_cachep = kmem_cache_create("mp2_task_struct",
+                                               sizeof(struct mp2_task_struct),
+                                               ARCH_MIN_TASKALIGN,
+                                               SLAB_PANIC,
+                                               NULL,
+                                               NULL);
 
     printk(KERN_INFO "Rate-monotonic scheduler module loaded successfully.\n");
 
@@ -304,10 +316,12 @@ static void __exit rms_exit(void) {
     }
     up(&mutex);
     */
-
+    
     remove_proc_entry("status", mp2_dir);
     remove_proc_entry("mp2", NULL);
-
+    
+    // Destroy cache
+    kmem_cache_destroy(mp2_task_struct_cachep);
     printk(KERN_INFO "Rate-monotonic scheduler module unloaded successfully.\n");
 }
 
