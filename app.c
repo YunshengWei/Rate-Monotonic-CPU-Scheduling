@@ -10,15 +10,19 @@ static pid_t pid;
 FILE *file;
 
 void _register_(unsigned long period, unsigned long processing_time) {
+    printf("R,%d,%lu,%lu\n", pid, period, processing_time);
     fprintf(file, "R,%d,%lu,%lu", pid, period, processing_time);
+    fflush(file);
 }
 
 void yield(void) {
     fprintf(file, "Y,%d", pid);
+    fflush(file);
 }
 
 void deregister(void) {
     fprintf(file, "D,%d", pid);
+    fflush(file);
 }
 
 bool isRegistered() {
@@ -60,23 +64,26 @@ int main(int argc, char *argv[]) {
     unsigned long processing_time = strtoul(argv[3], NULL, 0);
 
     pid = getpid();
+printf("pid: %u, period: %lu, processing time: %lu\n", pid, period, processing_time);
 
     file = fopen("/proc/mp2/status", "r+");
     _register_(period, processing_time);
     if (!isRegistered()) {
-        fprintf(stderr, "Fail to register\n");
+        fprintf(stderr, "Fail to register %d\n", pid);
         exit(EXIT_FAILURE);
     }
 
     yield();
     struct timeval wakeup_time;
-    while (true) {
+    int i = 0;
+    while (i++ <= 2) {
         gettimeofday(&wakeup_time, NULL);
         printf("%d wakeup time: %ld\n", pid, wakeup_time.tv_sec * 1000000 + wakeup_time.tv_usec);
         do_job(n);
         yield();
     }
 
+    deregister();
     fclose(file);
     return 0;
 }

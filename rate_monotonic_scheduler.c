@@ -132,8 +132,11 @@ static bool pass_admission_control(unsigned long period,
     struct mp2_task_struct *entry;
     list_for_each_entry(entry, &task_list, list) {
         sum += entry->processing_time * 1000 / entry->period + 1;
+        printk("One entry\n");
     }
     sum += processing_time * 1000 / period + 1;
+
+    printk("Sum is %lu\n", sum);
 
     if (sum <= 693) {
         return true;
@@ -144,6 +147,8 @@ static bool pass_admission_control(unsigned long period,
 
 static ssize_t rms_register(unsigned int pid, unsigned long period,
     unsigned long processing_time) {
+
+    printk("pid: %u, period: %lu, processing time: %lu\n", pid, period, processing_time);
 
     if (down_interruptible(&mutex)) {
         return -ERESTARTSYS;
@@ -161,7 +166,13 @@ static ssize_t rms_register(unsigned int pid, unsigned long period,
         entry->next_period = jiffies;
         setup_timer(&entry->timer, wakeup_timer_callback, (unsigned long) entry);
         list_add(&entry->list, &task_list);
+
+        printk("Process %u registered successfully\n", pid);
+    } else {
+        printk("Process %u failed to register\n", pid);
     }
+
+
     up(&mutex);
 
     return 0;
@@ -239,11 +250,14 @@ static ssize_t rms_write(struct file *file, const char __user *buffer, size_t co
         return -EFAULT;
     }
 
+    printk("%s\n", procfs_buffer);
+
     char *running = procfs_buffer;
     char instr = *strsep(&running, delimiters);
     unsigned int pid;
     kstrtouint(strsep(&running, delimiters), 0, &pid);
     ssize_t error_code;
+
 
     unsigned long period;
     unsigned long process_time;
@@ -252,6 +266,7 @@ static ssize_t rms_write(struct file *file, const char __user *buffer, size_t co
     case 'R' :
         kstrtoul(strsep(&running, delimiters), 0, &period);
         kstrtoul(strsep(&running, delimiters), 0, &process_time);
+        printk("period: %lu; pt: %lu\n", period, process_time);
 
         error_code = rms_register(pid, period, process_time);
         break;
