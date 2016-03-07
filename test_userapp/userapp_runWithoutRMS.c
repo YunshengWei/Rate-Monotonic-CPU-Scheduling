@@ -64,34 +64,44 @@ int main(int argc, char* argv[])
     int n = atoi(argv[1]);
     unsigned long period = strtoul(argv[2], NULL, 0);
     unsigned long processing_time = strtoul(argv[3], NULL, 0);
-    printf("n %d period %ld processing time %ld\n", n, period, processing_time);
 
     pid = getpid();
 
-    file = fopen("/proc/mp2/status", "r+");
-    // register job
-    _register_(period, processing_time);
-    // ensure job pid is registered
-    if (!isRegistered()) {
-        fprintf(stderr, "Fail to register\n");
-        exit(EXIT_FAILURE);
-    }
-    // ready to start
-    yield();
-    struct timeval wakeup_time;
-    // while (true) 
-    for (int i = 0; i<10; i++)
-    {
-        gettimeofday(&wakeup_time, NULL);
-        printf("%d wakeup time: %ld\n", pid, wakeup_time.tv_sec * 1000000 + wakeup_time.tv_usec);
-        do_job(n);
-        // block job
-        yield();
-    }
-    // deregister
-    deregister();
+    do_job(n);
 
-    fclose(file);
+    // file = fopen("/proc/mp2/status", "r+");
+    // register job
+    // _register_(period, processing_time);
+    // ensure job pid is registered
+    // if (!isRegistered()) {
+    //     fprintf(stderr, "Fail to register\n");
+    //     exit(EXIT_FAILURE);
+    // }
+    // ready to start
+    // yield();
+
+    // struct timeval wakeup_time;
+    struct timeval start, end;
+    gettimeofday (&start, NULL);
+
+    // printf("%d wakeup time: %ld\n", pid, wakeup_time.tv_sec * 1000 + wakeup_time.tv_usec);
+    do_job(n);
+    gettimeofday (&end, NULL);
+    long exe_time = (end.tv_sec - start.tv_sec) * 1000000 + (end.tv_usec - start.tv_usec);
+    printf("%d execution time in msec: %ld\n", pid, exe_time);
+    // while (true) 
+    // for (int i = 0; i<10; i++)
+    // {
+    //     gettimeofday(&wakeup_time, NULL);
+    //     printf("%d wakeup time: %ld\n", pid, wakeup_time.tv_sec * 1000000 + wakeup_time.tv_usec);
+    //     do_job(n);
+    //     // block job
+    //     yield();
+    // }
+    // deregister
+    // deregister();
+
+    // fclose(file);
     return 0;
 }
 

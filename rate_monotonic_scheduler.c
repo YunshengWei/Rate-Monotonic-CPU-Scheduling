@@ -63,64 +63,16 @@ struct mp2_task_struct
     unsigned long next_period;
 };
 
-// context_switch
-int context_switch(void *data) 
-{
-    struct sched_param* sparam_pr99 = (struct sched_param*)kmalloc(sizeof(struct sched_param),GFP_KERNEL);
-    sparam_pr99->sched_priority = 99;
-    struct sched_param* sparam_pr0 = (struct sched_param*)kmalloc(sizeof(struct sched_param),GFP_KERNEL);
-    sparam_pr0->sched_priority = 0;
 
-    while (!kthread_should_stop()) 
-    {       
-        struct mp2_task_struct *entry;
-        struct mp2_task_struct *highest_priority_task = NULL;
-        unsigned long min_period = ULONG_MAX;
-
-        // CS
-        if (down_interruptible(&sem)) {
-            return -ERESTARTSYS;
-        }
-
-        // This can avoid missing wakeup?
-        // Need proof.
-        set_current_state(TASK_UNINTERRUPTIBLE); // cur job will be moved off the run queue and goes to sleep
-
-        // find the job with min period (max priority)
-        list_for_each_entry(entry, &task_list, list) 
-        {
-            if (entry->period < min_period && entry->state == READY) 
-            {
-                min_period = entry->period;
-                // update max priority task
-                highest_priority_task = entry;
-            }
-        }
-        up(&sem);
-        // if cur job is running and it is not the one with max priority
-        if (current_running_thread->pid != highest_priority_task->pid) 
-        {
-            current_running_thread->state = READY;
-            // set cur job priority to be 0, policy = normal
-            sched_setscheduler(current_running_thread->task, SCHED_NORMAL, sparam_pr0);
-            // wakes up sleeping task with TASK_UNINTERRUPTIBLE
-            wake_up_process(highest_priority_task->task);
-            sched_setscheduler(highest_priority_task->task, SCHED_FIFO, sparam_pr99);
-            current_running_thread = highest_priority_task;
-            highest_priority_task->state = RUNNING;
-        }
-        // sleep cur job
-        schedule();
-    }
-    return 0;
-}
-
+// show all jobs: pid, period, processing time
 static int rms_show(struct seq_file *file, void *v) {
-    struct mp2_task_struct *entry;
+    
+    printk(KERN_INFO "calling rms_show ...\n");
     // CS
     if (down_interruptible(&sem)) {
         return -ERESTARTSYS;
     }
+    struct mp2_task_struct *entry;
     list_for_each_entry(entry, &task_list, list) 
     {
         seq_printf(file, "%u, %lu, %lu\n", 
@@ -132,12 +84,14 @@ static int rms_show(struct seq_file *file, void *v) {
 }
 
 static int rms_open(struct inode *inode, struct file *file) {
+    printk(KERN_INFO "calling rms_open ...\n");
     return single_open(file, rms_show, NULL);
 }
 
 // pass_admission_control should only be called when holding mutex
 static bool pass_admission_control(unsigned int pid, unsigned long period, unsigned long processing_time) 
 {
+    printk(KERN_INFO "calling pass_admission_control ...\n");
     unsigned long sum = 0;
 
     struct mp2_task_struct *entry;
@@ -154,14 +108,87 @@ static bool pass_admission_control(unsigned int pid, unsigned long period, unsig
     return false;
 }
 
+// context_switch
+int context_switch(void *data) 
+{
+    printk(KERN_INFO "calling context_switch ...\n");
+    struct sched_param* sparam_pr99 = (struct sched_param*)kmalloc(sizeof(struct sched_param),GFP_KERNEL);
+    sparam_pr99->sched_priority = 99;
+    struct sched_param* sparam_pr0 = (struct sched_param*)kmalloc(sizeof(struct sched_param),GFP_KERNEL);
+    sparam_pr0->sched_priority = 0;
+
+    // while kthread not return
+    while (!kthread_should_stop()) 
+    {       
+        struct mp2_task_struct *highest_priority_task = NULL;
+        unsigned long min_period = ULONG_MAX;
+
+        // CS
+        if (down_interruptible(&sem)) {
+            return -ERESTARTSYS;
+        }
+
+        // This can avoid missing wakeup?
+        // Need proof.
+        // set_current_state(TASK_UNINTERRUPTIBLE); // cur job will be moved off the run queue and goes to sleep
+
+        // find the job with min period (max priority)
+        struct mp2_task_struct *entry;
+        list_for_each_entry(entry, &task_list, list) 
+        {
+            if (entry->period < min_period && entry->state == READY) 
+            {
+                min_period = entry->period;
+                // update max priority task
+                highest_priority_task = entry;
+            }
+        }
+        
+        // if cur job is running and it is not the one with max priority
+        if (current_running_thread->pid != highest_priority_task->pid) 
+        {
+            // cur job state might not be running as it can finish earlier and become READY, so both of READY and RUNNING are possible
+            if (current_running_thread->state != SLEEPING)
+            {
+                current_running_thread->state = READY;
+            }
+            // set cur job priority to be 0, policy = normal, this ensures cur job will not run even it wakes up
+            sched_setscheduler(current_running_thread->task, SCHED_NORMAL, sparam_pr0);
+            // wakes up sleeping task with TASK_UNINTERRUPTIBLE
+            // wake_up_process(highest_priority_task->task);
+
+            // schedule max priority job
+            sched_setscheduler(highest_priority_task->task, SCHED_FIFO, sparam_pr99);
+            // update cur job = max priority job
+            current_running_thread = highest_priority_task;
+            highest_priority_task->state = RUNNING;
+        }
+        up(&sem);
+        // sleep cur job
+        // schedule();
+    }
+
+    kfree(sparam_pr99);
+    kfree(sparam_pr0);
+    return 0;
+}
+
 // call back function when timer expires
 static void wakeup_timer_callback(unsigned long data) 
 {
+    printk(KERN_INFO "calling wakeup_timer_callback ...\n");
     struct mp2_task_struct *entry = (struct mp2_task_struct *) data;
-    // set_task_state(current_running_thread, TASK_UNINTERRUPTIBLE);
-    // Do we need lock here? How?
+    // CS
+    down_interruptible(&sem);
+    // wake up job
+    wake_up_process(entry->task);
+    // set wake job state to ready
     entry->state = READY;
+    up(&sem);
+    // do context switch
     wake_up_process(dispatching_thread);
+    set_task_state(dispatching_thread, TASK_UNINTERRUPTIBLE);
+    schedule();
 }
 
 // register job
@@ -194,6 +221,7 @@ static ssize_t __register(unsigned int pid, unsigned long period, unsigned long 
     return 0;
 }
 
+// yield, block a job
 static ssize_t __yield(unsigned int pid) 
 {
     printk(KERN_INFO "calling yield ...\n");
@@ -211,19 +239,25 @@ static ssize_t __yield(unsigned int pid)
             current_running_thread = NULL;
 
             entry->next_period += msecs_to_jiffies(entry->period);
+            // update timer
             mod_timer(&entry->timer, entry->next_period);
 
             printk(KERN_INFO "Yield process %u.\n", pid);
-            break;
+            break; // exit for loop
         }
     }
-    wake_up_process(dispatching_thread);
-    
-    up(&sem);
-
+    // set yield job to sleep
     entry->state = SLEEPING;
+    // sleep yield job
     set_task_state(entry->task, TASK_UNINTERRUPTIBLE);
-    
+    schedule();
+    up(&sem);
+    // wake up dispatching thread to context switch to select the max priority job to run
+    wake_up_process(dispatching_thread);
+    // sleep dispatching_thread
+    set_task_state(dispatching_thread, TASK_UNINTERRUPTIBLE);
+    schedule();
+
     return 0;
 }
 
@@ -262,6 +296,7 @@ static ssize_t deregister(unsigned int pid)
 // app call module
 static ssize_t rms_write(struct file *file, const char __user *buffer, size_t count, loff_t *data) 
 {    
+    printk(KERN_INFO "calling rms_write ...\n");
     procfs_buffer_size = count;
     if (procfs_buffer_size > PROCFS_MAX_SIZE) 
     {
@@ -323,10 +358,13 @@ static int __init rms_init(void)
 
     // init dispatching thread
     dispatching_thread = kthread_create(context_switch, NULL, "dispatching thread");
-    struct sched_param sparam;
+    // struct sched_param sparam;
+    // put dispatching_thread to sleep
+    set_task_state(dispatching_thread, TASK_UNINTERRUPTIBLE);
+    schedule();
     // SCHED_FIFO min/max priority : 1/99
-    sparam.sched_priority = 98;
-    sched_setscheduler(dispatching_thread, SCHED_FIFO, &sparam);
+    // sparam.sched_priority = 98; // will context switch able to run if its priority is always lower than cur job?
+    // sched_setscheduler(dispatching_thread, SCHED_FIFO, &sparam);
 
     // init semaphore
     sema_init(&sem,1);

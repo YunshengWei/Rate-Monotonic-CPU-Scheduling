@@ -10,3 +10,6 @@
 	2) takes time period as argument to pass to scheduler
 	3) run 5 userapps simutaneously to test scheduler
 
+Unresolved:
+  1) userapp gets killed everytime tries to run
+  2) sudo rmmod RMS is unable by the system, needs to reboot

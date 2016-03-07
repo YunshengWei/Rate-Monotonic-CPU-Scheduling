@@ -30,26 +30,25 @@ __attribute__((section("__versions"))) = {
 	{ 0x3bd1b1f6, __VMLINUX_SYMBOL_STR(msecs_to_jiffies) },
 	{ 0x593a99b, __VMLINUX_SYMBOL_STR(init_timer_key) },
 	{ 0x7d11c268, __VMLINUX_SYMBOL_STR(jiffies) },
-	{ 0x37a0cba, __VMLINUX_SYMBOL_STR(kfree) },
 	{ 0xc996d097, __VMLINUX_SYMBOL_STR(del_timer) },
 	{ 0x3c80c06c, __VMLINUX_SYMBOL_STR(kstrtoull) },
-	{ 0x27e1a049, __VMLINUX_SYMBOL_STR(printk) },
 	{ 0x69ad2f20, __VMLINUX_SYMBOL_STR(kstrtouint) },
 	{ 0x85df9b6c, __VMLINUX_SYMBOL_STR(strsep) },
 	{ 0x4f6b400b, __VMLINUX_SYMBOL_STR(_copy_from_user) },
 	{ 0x219428ce, __VMLINUX_SYMBOL_STR(pid_task) },
 	{ 0xf4aacda7, __VMLINUX_SYMBOL_STR(find_vpid) },
+	{ 0x1000e51, __VMLINUX_SYMBOL_STR(schedule) },
+	{ 0x11f26595, __VMLINUX_SYMBOL_STR(wake_up_process) },
 	{ 0x91831d70, __VMLINUX_SYMBOL_STR(seq_printf) },
 	{ 0x14b58138, __VMLINUX_SYMBOL_STR(single_open) },
-	{ 0x1000e51, __VMLINUX_SYMBOL_STR(schedule) },
-	{ 0xeb3ede2c, __VMLINUX_SYMBOL_STR(sched_setscheduler) },
+	{ 0x37a0cba, __VMLINUX_SYMBOL_STR(kfree) },
 	{ 0x71e3cecb, __VMLINUX_SYMBOL_STR(up) },
+	{ 0xeb3ede2c, __VMLINUX_SYMBOL_STR(sched_setscheduler) },
 	{ 0xf22449ae, __VMLINUX_SYMBOL_STR(down_interruptible) },
 	{ 0xb3f7646e, __VMLINUX_SYMBOL_STR(kthread_should_stop) },
 	{ 0x3d1f7a21, __VMLINUX_SYMBOL_STR(kmem_cache_alloc_trace) },
 	{ 0xda22cdde, __VMLINUX_SYMBOL_STR(kmalloc_caches) },
-	{ 0x7378123e, __VMLINUX_SYMBOL_STR(current_task) },
-	{ 0x11f26595, __VMLINUX_SYMBOL_STR(wake_up_process) },
+	{ 0x27e1a049, __VMLINUX_SYMBOL_STR(printk) },
 	{ 0xbdfb6dbb, __VMLINUX_SYMBOL_STR(__fentry__) },
 };
 
@@ -59,4 +58,4 @@ __attribute__((section(".modinfo"))) =
 "depends=";
 
 
-MODULE_INFO(srcversion, "DEC47F46D7259F3AFCDAFA4");
+MODULE_INFO(srcversion, "7B65EAB50A6A14A25ABD10B");

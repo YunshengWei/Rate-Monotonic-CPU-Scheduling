@@ -1,0 +1,3 @@
+gcc -o userapp_runWithoutRMS userapp_runWithoutRMS.c -std=c99
+
+./userapp_runWithoutRMS 100000 50 40
