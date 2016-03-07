@@ -14,8 +14,8 @@ obj-m:= rate_monotonic_scheduler.o
 modules:
 	$(MAKE) -C $(KERNEL_SRC) M=$(SUBDIR) modules
 
-app: userapp.c userapp.h
-	$(GCC) -o userapp userapp.c
+app: app.c
+	$(GCC) -std=c99 -o app app.c
 
 clean:
 	$(RM) -f userapp *~ *.ko *.o *.mod.c Module.symvers modules.order

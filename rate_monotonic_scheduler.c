@@ -12,7 +12,7 @@
 #include <linux/string.h>
 #include <linux/timer.h>
 #include <linux/types.h>
-#include <asm/semaphore.h>
+#include <linux/semaphore.h>
 #include <asm/uaccess.h>
 
 #include "mp2_given.h"
@@ -31,9 +31,9 @@ static unsigned long procfs_buffer_size = 0;
 static char procfs_buffer[PROCFS_MAX_SIZE];
 static struct task_struct *dispatching_thread;
 static struct mp2_task_struct *current_running_task;
-static kmem_cache_t *mp2_task_struct_cachep;
+static struct kmem_cache *mp2_task_struct_cachep;
+static struct semaphore mutex;
 LIST_HEAD(task_list);
-DECLARE_MUTEX(mutex);
 
 enum task_state { RUNNING, READY, SLEEPING };
 
@@ -80,11 +80,11 @@ int context_switch(void *data) {
         if (! (current_running_task == highest_priority_task)) {
             if (current_running_task) {
                 current_running_task->state = READY;
-                sched_setscheduler(current_running_task, SCHED_NORMAL, &sparam_pr0);
+                sched_setscheduler(current_running_task->task, SCHED_NORMAL, &sparam_pr0);
             }
 
-            wake_up_process(highest_priority_task);
-            sched_setscheduler(highest_priority_task, SCHED_FIFO, &sparam_pr99);
+            wake_up_process(highest_priority_task->task);
+            sched_setscheduler(highest_priority_task->task, SCHED_FIFO, &sparam_pr99);
             current_running_task = highest_priority_task;
             highest_priority_task->state = RUNNING;
         }
@@ -97,7 +97,7 @@ int context_switch(void *data) {
 
 static void wakeup_timer_callback(unsigned long data) {
     struct mp2_task_struct *entry = (struct mp2_task_struct *) data;
-    //set_task_state(current_running_task, TASK_UNINTERRUPTIBLE);
+    //set_task_state(current_running_task->task, TASK_UNINTERRUPTIBLE);
 
     // Do we need lock here? How?
     entry->state = READY;
@@ -127,7 +127,7 @@ static int rms_open(struct inode *inode, struct file *file) {
 // pass_admission_control should only be called when holding mutex
 static bool pass_admission_control(unsigned long period,
     unsigned long processing_time) {
-    unsigned long sum;
+    unsigned long sum = 0;
 
     struct mp2_task_struct *entry;
     list_for_each_entry(entry, &task_list, list) {
@@ -148,7 +148,7 @@ static ssize_t rms_register(unsigned int pid, unsigned long period,
     if (down_interruptible(&mutex)) {
         return -ERESTARTSYS;
     }
-    if (pass_admission_control(pid, period, processing_time)) {
+    if (pass_admission_control(period, processing_time)) {
 //        struct mp2_task_struct *entry = kmalloc(sizeof(struct mp2_task_struct),
 //            GFP_KERNEL);
         struct mp2_task_struct *entry = kmem_cache_alloc(mp2_task_struct_cachep, GFP_KERNEL);
@@ -214,8 +214,8 @@ static ssize_t rms_deregister(unsigned int pid) {
         return -ERESTARTSYS;
     }
 
-    struct mp2_task_struct *entry;
-    list_for_each_entry_safe(entry, &task_list, list) {
+    struct mp2_task_struct *entry, *tmp;
+    list_for_each_entry_safe(entry, tmp, &task_list, list) {
         if (entry->pid == pid) {
             free_task_struct(entry);
             printk(KERN_INFO "Deregister process %u.\n", pid);
@@ -245,19 +245,20 @@ static ssize_t rms_write(struct file *file, const char __user *buffer, size_t co
     kstrtouint(strsep(&running, delimiters), 0, &pid);
     ssize_t error_code;
 
+    unsigned long period;
+    unsigned long process_time;
+
     switch (instr) {
-    case 'R': 
-        unsigned long period;
-        unsigned long process_time;
+    case 'R' :
         kstrtoul(strsep(&running, delimiters), 0, &period);
         kstrtoul(strsep(&running, delimiters), 0, &process_time);
 
-        error_code = rms_register(pid, period, process_time));
+        error_code = rms_register(pid, period, process_time);
         break;
-    case 'Y':
+    case 'Y' :
         error_code = rms_yield(pid);
         break;
-    case 'D':
+    case 'D' :
         error_code = rms_deregister(pid);
         break;
     }
@@ -282,6 +283,8 @@ static int __init rms_init(void) {
     mp2_dir = proc_mkdir("mp2", NULL);
     proc_create("status", 0666, mp2_dir, &rms_fops);
 
+    sema_init(&mutex, 1);
+
     dispatching_thread = kthread_create(context_switch,
         NULL, "dispatching thread");
     struct sched_param sparam;
@@ -289,12 +292,8 @@ static int __init rms_init(void) {
     sched_setscheduler(dispatching_thread, SCHED_FIFO, &sparam);
     
     // Create cache
-    mp2_task_struct_cachep = kmem_cache_create("mp2_task_struct",
-                                               sizeof(struct mp2_task_struct),
-                                               ARCH_MIN_TASKALIGN,
-                                               SLAB_PANIC,
-                                               NULL,
-                                               NULL);
+    mp2_task_struct_cachep = kmem_cache_create("mp2_task_struct", 
+        sizeof(struct mp2_task_struct), ARCH_MIN_TASKALIGN, SLAB_PANIC, NULL);
 
     printk(KERN_INFO "Rate-monotonic scheduler module loaded successfully.\n");
 
