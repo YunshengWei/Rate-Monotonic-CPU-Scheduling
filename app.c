@@ -10,7 +10,6 @@ static pid_t pid;
 FILE *file;
 
 void _register_(unsigned long period, unsigned long processing_time) {
-    printf("R,%d,%lu,%lu\n", pid, period, processing_time);
     fprintf(file, "R,%d,%lu,%lu", pid, period, processing_time);
     fflush(file);
 }
@@ -36,17 +35,17 @@ bool isRegistered() {
 }
 
 void signal_handler(int sig) {
-    fflush(file);
     deregister();
     fclose(file);
     exit(EXIT_SUCCESS);
 }
 
 void do_job(int n) {
-    long fact = 1;
+    unsigned long long fact = 1;
     for (int i = 1; i <=n; i++) {
-        fact *= i;
+        fact += i;
     }
+    printf("fact: %llu\n", fact);
 }
 
 int main(int argc, char *argv[]) {
@@ -55,17 +54,17 @@ int main(int argc, char *argv[]) {
         exit(EXIT_FAILURE);
     }
 
-    if (argc != 4) {
-        fprintf(stderr, "Usage:\n\tapp [n] [period] [processing_time]\n");
+    if (argc != 5) {
+        fprintf(stderr, "Usage:\n\tapp [n: jiadaoji] [m: cishu] [period] [processing_time]\n");
         exit(EXIT_FAILURE);
     }
 
     int n = atoi(argv[1]);
-    unsigned long period = strtoul(argv[2], NULL, 0);
-    unsigned long processing_time = strtoul(argv[3], NULL, 0);
+    int m = atoi(argv[2]);
+    unsigned long period = strtoul(argv[3], NULL, 0);
+    unsigned long processing_time = strtoul(argv[4], NULL, 0);
 
     pid = getpid();
-printf("pid: %u, period: %lu, processing time: %lu\n", pid, period, processing_time);
 
     file = fopen("/proc/mp2/status", "r+");
     _register_(period, processing_time);
@@ -77,9 +76,9 @@ printf("pid: %u, period: %lu, processing time: %lu\n", pid, period, processing_t
     yield();
     struct timeval wakeup_time;
     int i = 0;
-    while (i++ <= 2) {
+    while (i++ <= m) {
         gettimeofday(&wakeup_time, NULL);
-        // printf("%d wakeup time: %ld\n", pid, wakeup_time.tv_sec * 1000000 + wakeup_time.tv_usec);
+        printf("%d wakeup time: %ld\n", pid, wakeup_time.tv_sec * 1000000 + wakeup_time.tv_usec);
         do_job(n);
         yield();
     }

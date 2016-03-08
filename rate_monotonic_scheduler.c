@@ -49,70 +49,65 @@ struct mp2_task_struct {
     unsigned long next_period;
 };
 
-int context_switch(void *data) 
-{
-    printk(KERN_INFO "context_switch ...\n");
+int context_switch(void *data) {
     struct sched_param sparam_pr99;
     sparam_pr99.sched_priority = 99;
     struct sched_param sparam_pr0;
     sparam_pr0.sched_priority = 0;
 
-    while (!kthread_should_stop()) 
-    {
-        printk(KERN_INFO "inside while loop ...\n");
+    while (!kthread_should_stop()) {
+        printk("I am running\n");
         struct mp2_task_struct *entry;
         struct mp2_task_struct *highest_priority_task = NULL;
         unsigned long min_period = ULONG_MAX;
-        
-        
 
-        // This can avoid missing wakeup?
-        // Need proof.
-        
         if (down_interruptible(&mutex)) {
             return -ERESTARTSYS;
         }
+
+        // This can avoid missing wakeup?
+        // Need proof.
         set_current_state(TASK_UNINTERRUPTIBLE);
 
-        if (!list_empty(&task_list))
-        {
-            list_for_each_entry(entry, &task_list, list) {
-                if (entry->period < min_period &&
-                    (entry->state == READY || entry->state == RUNNING)) {
-                    min_period = entry->period;
-                    highest_priority_task = entry;
-                }
-            }
-        }
-        // up(&mutex);
+        list_for_each_entry(entry, &task_list, list) {
+            if (entry->period < min_period &&
+                (entry->state == READY || entry->state == RUNNING)) {
+                min_period = entry->period;
+                highest_priority_task = entry;
 
-        if ( highest_priority_task != NULL && !list_empty(&task_list))
-        {
-            printk(KERN_INFO "task list not empty ...\n");
-            if ( (current_running_task != highest_priority_task) ) 
-            {
-                printk(KERN_INFO "current_running or max priority task or both are not null...\n");
-                if (current_running_task != NULL) 
-                {
-                    printk(KERN_INFO "current_running_task is %d\n", current_running_task->pid);
-                    current_running_task->state = READY;
-                    sched_setscheduler(current_running_task->task, SCHED_NORMAL, &sparam_pr0);
-                }
-                current_running_task = highest_priority_task;
-                highest_priority_task->state = RUNNING;
-                up(&mutex);
+                printk("Highest period: %lu\n", entry->period);
+                break;
+            }
+        }
+        up(&mutex);
 
-                wake_up_process(highest_priority_task->task);
-                sched_setscheduler(highest_priority_task->task, SCHED_FIFO, &sparam_pr99);
-            }
-            else{
-                up(&mutex);
-            }
+        printk("Highest period: %lu\n", entry->period);
+
+        if (current_running_task) {
+            current_running_task->state = READY;
+                sched_setscheduler(current_running_task->task, SCHED_NORMAL, &sparam_pr0);
+                printk("pid %u is interrupted by pid %u\n",
+                    current_running_task->pid, highest_priority_task->pid);
         }
-        else{
-            up(&mutex);
+        if (highest_priority_task) {
+            wake_up_process(highest_priority_task->task);
+            sched_setscheduler(highest_priority_task->task, SCHED_FIFO, &sparam_pr99);
+            current_running_task = highest_priority_task;
+            highest_priority_task->state = RUNNING;
         }
-        
+        /*if (! (current_running_task == highest_priority_task)) {
+            if (current_running_task) {
+                current_running_task->state = READY;
+                sched_setscheduler(current_running_task->task, SCHED_NORMAL, &sparam_pr0);
+                printk("pid %u is interrupted by pid %u\n",
+                    current_running_task->pid, highest_priority_task->pid);
+            }
+
+            wake_up_process(highest_priority_task->task);
+            sched_setscheduler(highest_priority_task->task, SCHED_FIFO, &sparam_pr99);
+            current_running_task = highest_priority_task;
+            highest_priority_task->state = RUNNING;
+        }*/
 
         schedule();
     }
@@ -121,31 +116,30 @@ int context_switch(void *data)
 }
 
 static void wakeup_timer_callback(unsigned long data) {
-    printk(KERN_INFO "wakeup_timer_callback ...\n");
     struct mp2_task_struct *entry = (struct mp2_task_struct *) data;
     //set_task_state(current_running_task->task, TASK_UNINTERRUPTIBLE);
 
     // Do we need lock here? How?
-    if (down_interruptible(&mutex)) {
-            return -ERESTARTSYS;
-    }
     entry->state = READY;
-    up(&mutex);
-
+    printk("I am interrupted, pid %u is wake\n", entry->pid);
+    if (current_running_task) {
+        printk("pid %u is going to sleep\n", current_running_task->pid);
+        set_task_state(current_running_task->task, TASK_UNINTERRUPTIBLE);
+    }
     wake_up_process(dispatching_thread);
 }
 
 static int rms_show(struct seq_file *file, void *v) {
     struct mp2_task_struct *entry;
 
-    // if (down_interruptible(&mutex)) {
-    //     return -ERESTARTSYS;
-    // }
+    if (down_interruptible(&mutex)) {
+        return -ERESTARTSYS;
+    }
     list_for_each_entry(entry, &task_list, list) {
         seq_printf(file, "%u, %lu, %lu\n", 
             entry->pid, entry->period, entry->processing_time);
     }
-    // up(&mutex);
+    up(&mutex);
 
     return 0;
 }
@@ -155,14 +149,13 @@ static int rms_open(struct inode *inode, struct file *file) {
 }
 
 // pass_admission_control should only be called when holding mutex
-static bool pass_admission_control(unsigned long period, unsigned long processing_time) 
-{
-    printk(KERN_INFO "pass_admission_control ...\n");
+static bool pass_admission_control(unsigned long period,
+    unsigned long processing_time) {
     unsigned long sum = 0;
+
     struct mp2_task_struct *entry;
     list_for_each_entry(entry, &task_list, list) {
         sum += entry->processing_time * 1000 / entry->period + 1;
-        printk("One entry\n");
     }
     sum += processing_time * 1000 / period + 1;
 
@@ -209,7 +202,6 @@ static ssize_t rms_register(unsigned int pid, unsigned long period,
 }
 
 static ssize_t rms_yield(unsigned int pid) {
-    printk(KERN_INFO "rms_yield ...\n");
     if (down_interruptible(&mutex)) {
         return -ERESTARTSYS;
     }
@@ -218,8 +210,12 @@ static ssize_t rms_yield(unsigned int pid) {
     list_for_each_entry(entry, &task_list, list) {
         if (entry->pid == pid) {
             current_running_task = NULL;
+            
+            // in case doesn't finish in this period.
+            do {
+                entry->next_period += msecs_to_jiffies(entry->period);
+            } while (entry->next_period <= jiffies);
 
-            entry->next_period += msecs_to_jiffies(entry->period);
             mod_timer(&entry->timer, entry->next_period);
 
             printk(KERN_INFO "Yield process %u.\n", pid);
@@ -227,7 +223,7 @@ static ssize_t rms_yield(unsigned int pid) {
         }
     }
 
-    
+    wake_up_process(dispatching_thread);
 
     // must release lock before going to sleep,
     // otherwise might cause deadlock!
@@ -238,10 +234,6 @@ static ssize_t rms_yield(unsigned int pid) {
     // otherwise it will never awake!
     entry->state = SLEEPING;
     set_task_state(entry->task, TASK_UNINTERRUPTIBLE);
-    
-
-    wake_up_process(dispatching_thread);
-
     schedule();
 
     return 0;
@@ -255,28 +247,21 @@ static void free_task_struct(struct mp2_task_struct *entry) {
     
 }
 
-static ssize_t rms_deregister(unsigned int pid) 
-{
-    printk(KERN_INFO "rms_deregister ...\n");
+static ssize_t rms_deregister(unsigned int pid) {
     if (down_interruptible(&mutex)) {
         return -ERESTARTSYS;
     }
 
     struct mp2_task_struct *entry, *tmp;
     list_for_each_entry_safe(entry, tmp, &task_list, list) {
-        if (entry->pid == pid) 
-        {
+        if (entry->pid == pid) {
             free_task_struct(entry);
-            // set cur task = null if deregistered
-            if (current_running_task != NULL && current_running_task->pid ==pid)
-            {
-                current_running_task = NULL;
-            }
-
+            current_running_task = NULL;
             printk(KERN_INFO "Deregister process %u.\n", pid);
             break;
         }
     }
+
     up(&mutex);
 
     return 0;
@@ -292,14 +277,15 @@ static ssize_t rms_write(struct file *file, const char __user *buffer, size_t co
     if (copy_from_user(procfs_buffer, buffer, procfs_buffer_size)) {
         return -EFAULT;
     }
+
     procfs_buffer[procfs_buffer_size] = '\0';
     printk("%s\n", procfs_buffer);
-    
+
     char *running = procfs_buffer;
     char instr = *strsep(&running, delimiters);
     unsigned int pid;
     kstrtouint(strsep(&running, delimiters), 0, &pid);
-    ssize_t error_code = 0;
+    ssize_t error_code;
 
 
     unsigned long period;
