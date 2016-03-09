@@ -51,12 +51,12 @@ struct mp2_task_struct {
 
 int context_switch(void *data) {
     struct sched_param sparam_pr99;
-    sparam_pr99.sched_priority = 99;
+    sparam_pr99.sched_priority = 90;
     struct sched_param sparam_pr0;
     sparam_pr0.sched_priority = 0;
 
     while (!kthread_should_stop()) {
-        printk("I am running\n");
+        printk("Inside dispatching thread\n");
         struct mp2_task_struct *entry;
         struct mp2_task_struct *highest_priority_task = NULL;
         unsigned long min_period = ULONG_MAX;
@@ -65,8 +65,7 @@ int context_switch(void *data) {
             return -ERESTARTSYS;
         }
 
-        // This can avoid missing wakeup?
-        // Need proof.
+        // Set state to sleep before picking threads to avoid missed wakeup.
         set_current_state(TASK_UNINTERRUPTIBLE);
 
         list_for_each_entry(entry, &task_list, list) {
@@ -74,32 +73,19 @@ int context_switch(void *data) {
                 (entry->state == READY || entry->state == RUNNING)) {
                 min_period = entry->period;
                 highest_priority_task = entry;
-
-                printk("Highest period: %lu\n", entry->period);
-                break;
             }
         }
         up(&mutex);
 
-        printk("Highest period: %lu\n", entry->period);
-
-        if (current_running_task) {
-            current_running_task->state = READY;
-                sched_setscheduler(current_running_task->task, SCHED_NORMAL, &sparam_pr0);
-                printk("pid %u is interrupted by pid %u\n",
-                    current_running_task->pid, highest_priority_task->pid);
-        }
         if (highest_priority_task) {
-            wake_up_process(highest_priority_task->task);
-            sched_setscheduler(highest_priority_task->task, SCHED_FIFO, &sparam_pr99);
-            current_running_task = highest_priority_task;
-            highest_priority_task->state = RUNNING;
+            printk("Picking pid %u to run\n", highest_priority_task->pid);
         }
-        /*if (! (current_running_task == highest_priority_task)) {
+        
+        if (! (current_running_task == highest_priority_task)) {
             if (current_running_task) {
                 current_running_task->state = READY;
                 sched_setscheduler(current_running_task->task, SCHED_NORMAL, &sparam_pr0);
-                printk("pid %u is interrupted by pid %u\n",
+                printk("pid %u is preempted by pid %u\n",
                     current_running_task->pid, highest_priority_task->pid);
             }
 
@@ -107,7 +93,7 @@ int context_switch(void *data) {
             sched_setscheduler(highest_priority_task->task, SCHED_FIFO, &sparam_pr99);
             current_running_task = highest_priority_task;
             highest_priority_task->state = RUNNING;
-        }*/
+        }
 
         schedule();
     }
@@ -117,15 +103,10 @@ int context_switch(void *data) {
 
 static void wakeup_timer_callback(unsigned long data) {
     struct mp2_task_struct *entry = (struct mp2_task_struct *) data;
-    //set_task_state(current_running_task->task, TASK_UNINTERRUPTIBLE);
 
-    // Do we need lock here? How?
     entry->state = READY;
-    printk("I am interrupted, pid %u is wake\n", entry->pid);
-    if (current_running_task) {
-        printk("pid %u is going to sleep\n", current_running_task->pid);
-        set_task_state(current_running_task->task, TASK_UNINTERRUPTIBLE);
-    }
+    printk("Inside timer interrupt, pid %u wakes up\n", entry->pid);
+
     wake_up_process(dispatching_thread);
 }
 
@@ -264,6 +245,9 @@ static ssize_t rms_deregister(unsigned int pid) {
 
     up(&mutex);
 
+    // should wake up dispatching thread after deregistering
+    wake_up_process(dispatching_thread);
+
     return 0;
 }
 
@@ -279,13 +263,12 @@ static ssize_t rms_write(struct file *file, const char __user *buffer, size_t co
     }
 
     procfs_buffer[procfs_buffer_size] = '\0';
-    printk("%s\n", procfs_buffer);
 
     char *running = procfs_buffer;
     char instr = *strsep(&running, delimiters);
     unsigned int pid;
     kstrtouint(strsep(&running, delimiters), 0, &pid);
-    ssize_t error_code;
+    ssize_t error_code = 0;
 
 
     unsigned long period;
@@ -332,7 +315,7 @@ static int __init rms_init(void) {
     dispatching_thread = kthread_create(context_switch,
         NULL, "dispatching thread");
     struct sched_param sparam;
-    sparam.sched_priority = 98;
+    sparam.sched_priority = 99;
     sched_setscheduler(dispatching_thread, SCHED_FIFO, &sparam);
     
     // Create cache
